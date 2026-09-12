@@ -1,0 +1,4 @@
+# Put the demo behind HTTPS on its own hostname (ArcanFlows only calls HTTPS URLs for lookups and webhooks).
+crm.example.com {
+    reverse_proxy crm-demo:8088
+}

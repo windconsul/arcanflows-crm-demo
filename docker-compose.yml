@@ -1,0 +1,7 @@
+services:
+  crm-demo:
+    build: .
+    env_file: .env
+    ports:
+      - "8088:8088"
+    restart: unless-stopped

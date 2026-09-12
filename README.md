@@ -1,0 +1,164 @@
+# arcanflows-crm-demo
+
+A deliberately tiny "third-party CRM" that embeds the **ArcanFlows phone** the way a real
+CRM or ERP would: the phone floats over a multi-page app, calls survive navigation,
+the CRM knows who is calling before the phone rings, every call event reaches the CRM
+backend as a signed webhook, and call history, statistics, presence and recordings are
+read through a scoped server key.
+
+It is one Python file (standard library only) and one HTML file. No framework, no build
+step. It exists to be read.
+
+```
+┌────────────────────────────── browser (your CRM page) ──────────────────────────────┐
+│  Dashboard · Contacts · Deals · Tickets · Integration     (client-side routing)     │
+│                                                                                     │
+│   ┌── floating dock ─────────────┐   phone.js from app.arcanflows.com mounts an     │
+│   │  <iframe app.arcanflows.com/ │   iframe here ONCE; pages change underneath it,  │
+│   │   embed/phone?session=…>     │   so a live call is never interrupted            │
+│   └──────────────────────────────┘                                                  │
+└───────────────┬──────────────────────────────────────────────┬──────────────────────┘
+                │ 15-minute session token only                 │ fetch /api/… (same origin)
+                ▼                                              ▼
+      api.arcanflows.com                              server.py (this repo — "the CRM backend")
+      ▲   ▲   ▲   ▲                                   holds pbx_ and pbxs_ keys, never the browser
+      │   │   │   └── POST …/phone/session  {external_user_id}   ← mint / renew sessions (pbx_)
+      │   │   └────── GET  …/phone/server/calls|stats|presence   ← history & KPIs        (pbxs_)
+      │   └────────── POST …/phone/server/calls/originate         ← click-to-call        (pbxs_)
+      └────────────── POST …/phone/server/seats                   ← just-in-time seats  (pbxs_)
+                │
+                │  ArcanFlows → your backend (HTTPS, HMAC-signed)
+                ├─► POST /api/lookup           "who is calling?" before the call is routed
+                └─► POST /api/webhooks/phone   phone.call.ringing / answered / completed / missed …
+```
+
+## What the demo shows
+
+| On the page | What it proves |
+|---|---|
+| **Integration → Connect phone** | The backend exchanges its `pbx_` key for a 15-minute session for *its own user id*; the phone mounts; renewal is automatic and silent |
+| **Account linking** | How a CRM user becomes an ArcanFlows seat (see below), with a live trace of the actual request and answer |
+| Navigate Dashboard → Contacts → Deals → Tickets during a call | The phone is mounted once in a floating dock; client-side navigation never touches it |
+| **Dashboard → click a call** | Detail through the server key, and the recording playable **two ways** — as this user (ArcanFlows checks they were on the call) and as the backend (tenant-wide) |
+| **Contacts → Known customers**, then call in | Caller lookup: ArcanFlows asks this backend who is calling, greets the caller by name, and the page logs the screen-pop |
+| **Live event log** (Integration) | Widget events in the browser, plus webhooks and lookups received by the backend with their signature verified |
+| Reload during a call | The browser asks first — a full page load destroys the phone; the demo guards against it |
+
+## Run it
+
+```bash
+cp .env.example .env        # fill in PBX, PBXS, WEBHOOK_SECRET, LOOKUP_SECRET, CRM_ORIGIN
+docker compose up -d        # or: PORT=8088 python3 server.py
+open http://localhost:8088
+```
+
+ArcanFlows only calls **public HTTPS** URLs for lookups and webhooks, so for those two
+features put the demo behind a real hostname (see `Caddyfile.example`). Sessions,
+history and click-to-call work from `localhost` as long as `CRM_ORIGIN` matches what the
+browser sends and is on the `pbx_` key's allowlist.
+
+## Set-up in ArcanFlows (once, by a workspace admin)
+
+1. **Phone System → Integrations → Embed keys → New key.** Add your page's host to
+   *Allowed origins*. Copy the `pbx_` key into `PBX`.
+2. **Server keys → New server key** with the scopes you need. The demo uses
+   `calls:read stats:read presence:read extensions:read recordings:read calls:originate
+   webhooks:manage seats:provision`. Copy it into `PBXS`.
+3. **Link users.** On an existing extension set *External user id* to your CRM's user id
+   (that is `alice` in the sample config). Users who will only ever use the phone from
+   your CRM can be provisioned just in time instead (the *Provision seat* button).
+4. **Webhooks** — the backend can create them itself with `webhooks:manage`:
+   ```bash
+   curl -X POST https://api.arcanflows.com/api/v1/public/phone/server/subscriptions \
+     -H "Authorization: Bearer $PBXS" -H "Content-Type: application/json" -A "my-crm/1.0" \
+     -d '{"name":"CRM → completed","event_type":"phone.call.completed","target_type":"webhook",
+          "webhook_url":"https://crm.example.com/api/webhooks/phone","webhook_secret":"<WEBHOOK_SECRET>"}'
+   ```
+   Repeat for `phone.call.ringing`, `answered`, `missed`, `transferred`, `phone.status.changed`.
+5. **Caller lookup** — Phone System → Integrations → Caller lookup: URL
+   `https://crm.example.com/api/lookup`, secret `<LOOKUP_SECRET>`, timeout 800 ms. Unknown
+   callers get a `404` from this backend, so routing is unaffected for them; known ones are
+   greeted by name and their record pops on the ringing phone.
+
+## How a CRM user is linked to an ArcanFlows user
+
+Every ArcanFlows extension belongs to an ArcanFlows user and carries an optional
+**External user id** — "the id this seat is known by in your system". Your backend never
+sends emails or extension ids. It mints a session with
+
+```json
+{ "external_user_id": "alice", "origin": "crm.example.com" }
+```
+
+and ArcanFlows returns the extension that carries `alice`. The id gets onto an extension in
+one of two ways:
+
+- **An admin types it** on an existing extension (Phone System → Extensions → edit). This
+  is how you link people who already have a seat.
+- **Your backend asks for a seat just in time** — `POST /api/v1/public/phone/server/seats`
+  with the id, an email and a name (`seats:provision`). ArcanFlows creates a phone-only
+  identity and a **new** extension already carrying the id. For agents who only ever use
+  the phone from your CRM.
+
+Just-in-time never re-maps an existing extension; attaching a CRM id to someone who
+already has a seat is deliberately the admin's decision.
+
+## Who can see a call's details and audio
+
+| Through | Who is asking | What it can see | Link life |
+|---|---|---|---|
+| Session token (the phone in the browser) — `GET /api/v1/public/phone/calls/{id}`, `…/recording` | one signed-in seat | **only calls that seat was on**; anything else answers `404` | 10 min |
+| Server key — `GET /api/v1/public/phone/server/calls/{id}`, `…/recording` (`recordings:read`) | your backend, for the whole workspace | every call: detail, summary, transcript turns, CRM references | 1 hour |
+
+ArcanFlows enforces the per-user rule on the session path. On the server path it is
+**your** rule: when your backend fetches a recording tenant-wide, your CRM decides which
+of its users may press play. Links are signed and expire; treat one like the audio itself.
+
+## Things a real integration must know
+
+- **Sessions last 15 minutes and are renewed ~3 minutes before expiry** through
+  `onRenewToken`. The token gates the API and the realtime socket, not the audio; the
+  media session is bounded by the call itself (4 h). A call of any length continues as
+  long as renewal works. If renewal fails, the server closes the socket at expiry and the
+  phone ends the call after a 10-second grace.
+- **A full page load destroys the phone.** Render your pages client-side (as this demo
+  does) or keep the phone in a separate window. While a call is live the SDK, and this
+  page, register the browser's leave prompt.
+- **Send a real `User-Agent` from your server.** The API sits behind Cloudflare, which
+  answers `403` to library defaults such as `Python-urllib/3.x`.
+- **Signatures.** Webhooks and lookups carry `X-Webhook-Signature: sha256=<hex>`, an
+  HMAC-SHA256 of the raw body with the secret you configured. `server.py` verifies both.
+- **Deliveries are at-least-once**, retried for about 17 minutes on the phone event
+  types; treat every event as a snapshot keyed by `call_id`.
+
+## Files
+
+| File | Role |
+|---|---|
+| `server.py` | the CRM backend: session mint/renew, server-key proxies, click-to-call, seat provisioning, caller-lookup endpoint, webhook receiver |
+| `index.html` | the CRM: five client-side pages, the floating phone dock, the call drawer, the event log |
+| `.env.example` | every setting, documented |
+| `Dockerfile`, `docker-compose.yml`, `Caddyfile.example` | run it anywhere behind HTTPS |
+
+## Endpoints implemented by `server.py`
+
+| Method & path | Talks to | Key |
+|---|---|---|
+| `POST /api/phone-session` `{user}` | `POST /api/v1/public/phone/session` `{external_user_id, origin}` | `pbx_` |
+| `POST /api/phone-session/renew` `{session_token}` | same route with `{session_token}` | `pbx_` |
+| `GET /api/calls?range=7d` · `GET /api/calls/{id}` · `GET /api/calls/{id}/recording` | `/api/v1/public/phone/server/calls…` | `pbxs_` |
+| `GET /api/stats?range=7d` · `GET /api/presence` · `GET /api/seats` | `/api/v1/public/phone/server/{stats,presence,seats}` | `pbxs_` |
+| `POST /api/originate` `{user, to}` | `POST …/server/calls/originate` `{external_user_id, to}` | `pbxs_` |
+| `POST /api/link` `{user}` | `POST …/server/seats` `{external_user_id, email, first_name, last_name}` | `pbxs_` |
+| `POST /api/lookup` ← ArcanFlows | answers `{display_name, account, external_ref, tier, language}` or `404` | signed |
+| `POST /api/webhooks/phone` ← ArcanFlows | stores the last 50 events for the page's log | signed |
+| `GET/POST /api/customers` | the in-memory customer list the lookup answers from | — |
+
+## Reference documentation
+
+- Phone API quickstart and interactive reference: `https://app.arcanflows.com/documentation/api/phone`
+- OpenAPI (phone-only): `https://api.arcanflows.com/api/v1/public/phone/openapi.json`
+- Widget loader: `https://app.arcanflows.com/embed/phone.js`
+
+MIT licensed. This is a demonstration, not a product: the customer list is in memory,
+there is no authentication on the demo's own pages, and secrets come from `.env`.

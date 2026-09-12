@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind CRM — ArcanFlows phone integration demo</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --ink:#1a1d23; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --ok:#16a34a; --bad:#dc2626; --nav:#111827; }
+  * { box-sizing:border-box }
+  body { margin:0; font:14px/1.45 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:var(--ink); background:var(--bg) }
+  header { background:var(--nav); color:#fff; padding:0 20px; display:flex; align-items:center; gap:22px; height:52px }
+  header b { font-size:16px } header nav a { color:#cbd5e1; text-decoration:none; padding:16px 4px; display:inline-block; border-bottom:2px solid transparent; margin-right:14px }
+  header nav a.active { color:#fff; border-color:#60a5fa } header .who { margin-left:auto; color:#9ca3af; font-size:12px }
+  main { padding:18px 20px 120px; max-width:1200px; margin:0 auto }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px }
+  .card h2 { margin:0 0 10px; font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted) }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+  input, select, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff }
+  button { cursor:pointer } button.primary { background:var(--accent); color:#fff; border-color:var(--accent) } button:disabled { opacity:.5; cursor:not-allowed }
+  table { width:100%; border-collapse:collapse; font-size:13px } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line) } th { color:var(--muted); font-weight:600 }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:#eef2ff; color:#3730a3 } .pill.ok { background:#ecfdf5; color:#065f46 } .pill.bad { background:#fef2f2; color:#991b1b }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px } .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px }
+  .kpi { font-size:22px; font-weight:700 } .kpi small { display:block; font-size:12px; color:var(--muted); font-weight:400 }
+  .muted { color:var(--muted) } h1 { font-size:20px; margin:4px 0 14px }
+  #log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; max-height:300px; overflow:auto; background:#0b1020; color:#d1d5db; border-radius:8px; padding:10px }
+  #log .t { color:#6b7280 } #log .k { color:#93c5fd } #log .warn { color:#fbbf24 } #log .err { color:#f87171 }
+  /* the floating phone: fixed, outside the page flow, never unmounted by navigation */
+  #dock { position:fixed; right:22px; bottom:22px; z-index:1000; display:flex; flex-direction:column; align-items:flex-end; gap:10px }
+  /* the production phone modal measures 672×822 px; give it room, and offer maximize when the viewport is short */
+  #panel { width:740px; height:min(920px, calc(100vh - 100px)); background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 18px 50px rgba(0,0,0,.22); overflow:hidden; display:none; flex-direction:column }
+  #panel.open { display:flex }
+  #panel.max { position:fixed; inset:12px; width:auto; height:auto; max-height:none; z-index:1001 }
+  #panelbar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); background:#f8fafc; font-size:12px; color:var(--muted) }
+  #panelbar button { padding:2px 8px; font-size:12px } #panelbar .sp { flex:1 }
+  #phone { flex:1; min-height:0 }
+  #bubble { width:56px; height:56px; border-radius:50%; border:0; background:var(--ok); color:#fff; box-shadow:0 10px 30px rgba(0,0,0,.25); font-size:22px; display:flex; align-items:center; justify-content:center; position:relative }
+  #bubble.off { background:#6b7280 } #bubble .dot { position:absolute; top:4px; right:4px; width:12px; height:12px; border-radius:50%; background:#f59e0b; border:2px solid #fff; display:none } #bubble.live .dot { display:block; background:#ef4444; animation: blink 1s infinite }
+  @keyframes blink { 50% { opacity:.3 } }
+  #drawer { position:fixed; top:0; right:0; bottom:0; width:520px; background:#fff; border-left:1px solid var(--line); box-shadow:-18px 0 50px rgba(0,0,0,.15); z-index:1002; overflow:auto; padding:18px; display:none } #drawer.open { display:block }
+  .turn { padding:6px 8px; border-left:3px solid var(--line); margin:6px 0; font-size:13px } .turn.agent { border-color:#60a5fa } .turn.caller { border-color:#34d399 }
+  #calls tr[data-id] { cursor:pointer } #calls tr[data-id]:hover { background:#f8fafc }
+  .callbar { position:fixed; left:0; right:0; bottom:0; background:#0f172a; color:#fff; padding:8px 20px; font-size:13px; display:none; z-index:999 } .callbar.show { display:block }
+</style>
+</head>
+<body>
+<header>
+  <b>Northwind CRM</b>
+  <nav id="nav">
+    <a href="/" data-page="dashboard">Dashboard</a>
+    <a href="/contacts" data-page="contacts">Contacts</a>
+    <a href="/deals" data-page="deals">Deals</a>
+    <a href="/tickets" data-page="tickets">Tickets</a>
+    <a href="/integration" data-page="integration">Integration</a>
+  </nav>
+  <span class="who" id="who">demo CRM · phone = ArcanFlows</span>
+</header>
+<main id="main"></main>
+
+<!-- The floating phone. It is NOT part of any page: it stays mounted while the pages above change. -->
+<div id="dock">
+  <div id="panel"><div id="panelbar"><span>ArcanFlows phone · production</span><span class="sp"></span><button id="pmax" title="Maximize">⤢ Maximize</button><button id="pmin" title="Collapse">— Collapse</button></div><div id="phone" style="width:100%"></div></div>
+  <button id="bubble" class="off" title="Phone"><span>☎</span><span class="dot"></span></button>
+</div>
+<div class="callbar" id="callbar"></div>
+<div id="drawer"></div>
+
+<script src="https://app.arcanflows.com/embed/phone.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+// app state that survives navigation — this is a single-page app: pages are rendered client-side
+const state = { user: 'juan', users: {}, token: null, jti: null, phone: null, mounted: false, live: false, log: [], renewTimer: null };
+function log(kind, msg, cls) { state.log.unshift({ t: new Date().toLocaleTimeString(), kind, msg, cls: cls || '' }); if (state.log.length > 200) state.log.pop(); renderLog(); }
+function renderLog() { const el = $('#log'); if (!el) return; el.innerHTML = state.log.map((l) => `<div><span class="t">${l.t}</span> <span class="k">${l.kind}</span> <span class="${l.cls}">${l.msg}</span></div>`).join(''); }
+async function api(path, opts) { const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {})); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || d.message || ('HTTP ' + r.status)); return d; }
+
+// phone lifecycle — independent of pages
+async function mint() { const d = await api('/api/phone-session', { method: 'POST', body: JSON.stringify({ user: state.user }) }); state.token = d.session_token; state.jti = d.jti; state.lastMint = d;
+  const tr = $('#linkTrace'); if (tr) tr.innerHTML = `<b>Live trace:</b> CRM sent <code>{"external_user_id":"${state.user}"}</code> → ArcanFlows answered extension <b>${d.extension ? d.extension.extension : '?'}</b> (${d.extension ? d.extension.display_name : ''}) with external_user_id <code>${d.extension ? d.extension.external_user_id : ''}</code>, session <code>${(d.jti || '').slice(0, 8)}…</code> valid until ${new Date(d.expires_at).toLocaleTimeString()}`; log('session', `minted for ${state.user} → extension ${d.extension ? d.extension.extension : '?'} (renew before ${new Date(d.renew_before).toLocaleTimeString()})`); return d; }
+async function renew() { const d = await api('/api/phone-session/renew', { method: 'POST', body: JSON.stringify({ session_token: state.token }) }); state.token = d.session_token; log('session', 'renewed silently by the CRM backend'); return d; }
+function setLive(on) { state.live = on; $('#bubble').classList.toggle('live', on); $('#callbar').classList.toggle('show', on); if (on) $('#callbar').textContent = '📞 Call in progress — navigate freely between pages; the phone stays where it is. Reloading or closing the tab would end your leg (the browser will ask first).'; }
+window.addEventListener('beforeunload', (e) => { if (!state.live) return; e.preventDefault(); e.returnValue = ''; return ''; });
+async function connectPhone() {
+  if (state.mounted) return;
+  try {
+    const d = await mint();
+    state.phone = ArcanPhone.mount({
+      sessionToken: d.session_token, container: $('#phone'),
+      onRenewToken: async () => (await renew()).session_token,
+      onEvent: (name, payload) => {
+        log('widget', name + ' ' + JSON.stringify(payload || {}).slice(0, 140), /expired/.test(name) ? 'warn' : '');
+        if (name === 'ring') { $('#panel').classList.add('open'); const ctx = payload && (payload.context || payload.caller_context); if (ctx && ctx.display_name) log('crm', `screen-pop: ${ctx.display_name}${ctx.account ? ' · ' + ctx.account : ''}`, 'warn'); }
+        if (name === 'call_started') setLive(true);
+        if (name === 'call_ended' || name === 'session_expired') setLive(false);
+      },
+    });
+    state.mounted = true; $('#bubble').classList.remove('off'); $('#panel').classList.add('open');
+    log('widget', 'mounted once, in the floating dock — page changes never touch it');
+  } catch (e) { log('error', e.message, 'err'); }
+}
+function disconnectPhone() { try { state.phone && state.phone.unmount(); } catch {} state.phone = null; state.mounted = false; setLive(false); $('#phone').innerHTML = ''; $('#panel').classList.remove('open'); $('#bubble').classList.add('off'); log('widget', 'unmounted'); }
+$('#bubble').onclick = () => { if (!state.mounted) return connectPhone(); $('#panel').classList.toggle('open'); };
+$('#pmin').onclick = () => $('#panel').classList.remove('open');
+$('#pmax').onclick = () => { const m = $('#panel').classList.toggle('max'); $('#pmax').textContent = m ? '⤡ Restore' : '⤢ Maximize'; };
+
+// pop-out prototype: the phone in its own small window — survives full page loads of the CRM
+async function popOut() {
+  try {
+    if (!state.token) await mint();
+    const url = `https://app.arcanflows.com/embed/phone?session=${encodeURIComponent(state.token)}&parent=${encodeURIComponent(location.origin)}`;
+    const w = window.open(url, 'arcanflows-phone', 'popup=yes,width=440,height=780');
+    if (!w) return log('error', 'the browser blocked the pop-up — allow pop-ups for this site', 'err');
+    log('popout', 'phone opened in its own window (prototype: commands reach it; its events do not reach this page yet — SDK follow-up)');
+    if (state.renewTimer) clearInterval(state.renewTimer);
+    state.renewTimer = setInterval(async () => { try { const r = await renew(); const win = window.open('', 'arcanflows-phone'); if (win) win.postMessage({ source: 'arcanflows-phone-host', cmd: 'updateToken', token: r.session_token }, 'https://app.arcanflows.com'); } catch (e) { log('error', 'popout renew failed: ' + e.message, 'err'); } }, 11 * 60 * 1000);
+  } catch (e) { log('error', e.message, 'err'); }
+}
+function popoutDial(to) { const win = window.open('', 'arcanflows-phone'); if (!win) return log('error', 'no pop-out window', 'err'); win.postMessage({ source: 'arcanflows-phone-host', cmd: 'dial', to }, 'https://app.arcanflows.com'); log('popout', 'dial ' + to + ' sent to the pop-out window'); }
+
+// pages — dummy CRM screens rendered client-side
+const pages = {
+  dashboard: () => `<h1>Dashboard</h1>
+    <div class="grid3"><div class="card"><div class="kpi" id="k_calls">–<small>calls (7d)</small></div></div><div class="card"><div class="kpi" id="k_min">–<small>billable minutes (7d)</small></div></div><div class="card"><div class="kpi" id="k_pres">–<small>agents available now</small></div></div></div>
+    <div class="card"><h2>Recent calls <span class="muted" style="text-transform:none;letter-spacing:0">(server API, pbxs_ key)</span> <button id="refresh" style="float:right">Refresh</button></h2>
+    <table><thead><tr><th>When</th><th>Direction</th><th>From</th><th>To</th><th>Status</th><th>Duration</th><th>CRM ref</th></tr></thead><tbody id="calls"><tr><td colspan="7" class="muted">loading…</td></tr></tbody></table></div>`,
+  contacts: () => `<h1>Contacts</h1>
+    <div class="card"><h2>Contact</h2><div class="grid2"><div><label class="muted">Name</label><br><input id="c_name" value="Jane Perez" style="width:100%"></div><div><label class="muted">Phone</label><br><input id="c_phone" value="+15550000000" style="width:100%"></div></div>
+      <div class="row" style="margin-top:10px"><button id="dialPage" class="primary">Call from this page (widget)</button><button id="dialServer">Call from the CRM backend (originate)</button><button id="dialPop">Dial in the pop-out</button></div></div>
+    <div class="card"><h2>Known customers <span class="muted" style="text-transform:none;letter-spacing:0">(what this CRM answers when ArcanFlows asks "who is calling?")</span></h2>
+      <div class="row"><input id="kc_name" placeholder="Name" style="width:220px"><input id="kc_phone" placeholder="+1555… (E.164)" style="width:200px"><button id="kc_add">Add</button></div>
+      <div id="kc_list" class="muted" style="margin-top:8px">loading…</div></div>`,
+  deals: () => `<h1>Deals</h1><div class="card"><table><thead><tr><th>Deal</th><th>Account</th><th>Stage</th><th>Amount</th></tr></thead><tbody>
+    <tr><td>Renewal 2027</td><td>ACME S.A.</td><td><span class="pill">Negotiation</span></td><td>$48,000</td></tr><tr><td>Onboarding pack</td><td>Globex</td><td><span class="pill ok">Won</span></td><td>$12,500</td></tr><tr><td>Support plan</td><td>Initech</td><td><span class="pill">Proposal</span></td><td>$6,200</td></tr></tbody></table>
+    <p class="muted">A dummy page. Navigate here during a call: the phone keeps ringing or talking in the corner.</p></div>`,
+  tickets: () => `<h1>Tickets</h1><div class="card"><table><thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Status</th></tr></thead><tbody>
+    <tr><td>4471</td><td>Cannot log in</td><td>Jane Perez</td><td><span class="pill bad">Open</span></td></tr><tr><td>4468</td><td>Invoice copy</td><td>ACME S.A.</td><td><span class="pill ok">Closed</span></td></tr><tr><td>4460</td><td>Change plan</td><td>Globex</td><td><span class="pill">Pending</span></td></tr></tbody></table>
+    <p class="muted">Another dummy page — same idea.</p></div>`,
+  integration: () => `<h1>Integration</h1>
+    <div class="card"><h2>Signed-in CRM user</h2><div class="row"><select id="user"></select><button class="primary" id="connect">Connect phone</button><button id="disconnect">Disconnect</button><button id="popout">Pop out (own window)</button><span id="sess" class="muted"></span></div>
+      <p class="muted" style="margin:8px 0 0">The CRM backend holds the <code>pbx_</code> key and mints a 15-minute session for the CRM user id. Renewal is automatic. The phone is mounted once, in the floating dock; the pages of this CRM are rendered client-side, so navigating never unmounts it — the same model ArcanFlows uses internally.</p></div>
+    <div class="card"><h2>How a CRM user is linked to an ArcanFlows user</h2>
+      <ol style="margin:0 0 8px 18px;line-height:1.7"><li>In ArcanFlows every phone <b>extension</b> belongs to an ArcanFlows <b>user</b> and has an optional field <b>External user id</b> — "the id this seat is known by in your CRM".</li>
+      <li>The CRM never sends emails or extension ids. Its backend asks: <code>POST /api/v1/public/phone/session {"external_user_id":"juan"}</code>.</li>
+      <li>ArcanFlows finds the extension whose External user id is <code>juan</code> → that ArcanFlows user's phone appears in the CRM.</li></ol>
+      <div class="muted">Two ways the field gets set: an ArcanFlows admin types the CRM id on an existing extension (Phone System → Extensions → edit), or the CRM calls <code>POST …/server/seats</code> (just-in-time) which creates a phone-only ArcanFlows user + a new extension already carrying the id.</div>
+      <div id="linkTrace" style="margin-top:10px" class="muted">Connect the phone to see the live trace of the lookup.</div></div>
+    <div class="card"><h2>Account linking <span class="muted" style="text-transform:none;letter-spacing:0">(CRM user id → ArcanFlows seat)</span> <button id="seatsRefresh" style="float:right">Refresh</button></h2>
+      <table><thead><tr><th>CRM user</th><th>external_user_id</th><th>ArcanFlows seat</th><th>How it was linked</th><th></th></tr></thead><tbody id="seatRows"><tr><td colspan="5" class="muted">loading…</td></tr></tbody></table></div>
+    <div class="card"><h2>Live event log</h2><div id="log"></div></div>`,
+};
+function pageFromPath(p) { return { '/': 'dashboard', '/contacts': 'contacts', '/deals': 'deals', '/tickets': 'tickets', '/integration': 'integration' }[p] || 'dashboard'; }
+function navigate(path) { history.pushState({}, '', path); renderPage(); }
+window.addEventListener('popstate', renderPage);
+document.addEventListener('click', (e) => { const a = e.target.closest('a[data-page]'); if (!a) return; e.preventDefault(); navigate(a.getAttribute('href')); });
+
+function renderPage() {
+  const page = pageFromPath(location.pathname);
+  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
+  $('#main').innerHTML = pages[page]();
+  if (page === 'dashboard') { loadCalls(); $('#refresh').onclick = loadCalls; }
+  if (page === 'contacts') {
+    loadCustomers();
+    $('#dialPage').onclick = () => { if (!state.mounted) return log('error', 'connect the phone first (Integration page or the ☎ bubble)', 'err'); state.phone.dial($('#c_phone').value); $('#panel').classList.add('open'); log('widget', 'dial ' + $('#c_phone').value + ' (from the page)'); };
+    $('#dialServer').onclick = async () => { try { const d = await api('/api/originate', { method: 'POST', body: JSON.stringify({ user: state.user, to: $('#c_phone').value }) }); log('server', 'originate → ' + JSON.stringify(d).slice(0, 120)); } catch (e) { log('server', 'originate refused: ' + e.message + ' (409 seat_offline = no phone open for that seat)', 'warn'); } };
+    $('#dialPop').onclick = () => popoutDial($('#c_phone').value);
+    $('#kc_add').onclick = async () => { try { await api('/api/customers', { method: 'POST', body: JSON.stringify({ name: $('#kc_name').value, phone: $('#kc_phone').value }) }); log('crm', 'known customer added: ' + $('#kc_name').value + ' ' + $('#kc_phone').value); loadCustomers(); } catch (e) { log('error', e.message, 'err'); } };
+  }
+  if (page === 'integration') {
+    const sel = $('#user'); sel.innerHTML = Object.entries(state.users).map(([k, v]) => `<option value="${k}" ${k === state.user ? 'selected' : ''}>${v.name}</option>`).join(''); sel.onchange = () => { state.user = sel.value; };
+    $('#connect').onclick = connectPhone; $('#disconnect').onclick = disconnectPhone; $('#popout').onclick = popOut; $('#seatsRefresh').onclick = loadSeats; loadSeats(); renderLog();
+    $('#sess').textContent = state.jti ? `session ${state.jti.slice(0, 8)}…` : '';
+    if (state.lastMint) { const d = state.lastMint; $('#linkTrace').innerHTML = `<b>Live trace:</b> CRM sent <code>{"external_user_id":"${state.user}"}</code> → ArcanFlows answered extension <b>${d.extension ? d.extension.extension : '?'}</b> (${d.extension ? d.extension.display_name : ''}) with external_user_id <code>${d.extension ? d.extension.external_user_id : ''}</code>`; }
+  }
+}
+async function loadCalls() { try { const [c, s, p] = await Promise.all([api('/api/calls?range=7d'), api('/api/stats?range=7d'), api('/api/presence')]);
+  const set = (id, v) => { const el = $(id); if (el) el.firstChild.textContent = v; }; set('#k_calls', (s.totals && s.totals.calls) ?? '–'); set('#k_min', (s.totals && s.totals.billable_minutes) ?? '–'); set('#k_pres', (p.extensions || []).filter((e) => (e.status || e.effective) === 'available').length);
+  const tb = $('#calls'); if (tb) tb.innerHTML = (c.calls || []).map((x) => `<tr data-id="${x.id}"><td>${new Date(x.started_at).toLocaleString()}</td><td>${x.direction || ''}</td><td>${x.caller || ''}</td><td>${x.dialed || ''}</td><td><span class="pill ${x.status === 'completed' ? 'ok' : ''}">${x.status || ''}</span></td><td>${x.duration_s ?? ''}s</td><td>${x.external_ref || ''}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">no calls</td></tr>'; if (tb) tb.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => openCall(tr.dataset.id)); } catch (e) { log('server', 'dashboard failed: ' + e.message, 'err'); } }
+// ——— call detail + recording, two ways: as the CRM backend (server key, tenant-wide) and as THIS user (session token, only calls they were on)
+async function openCall(id) {
+  const dr = $('#drawer'); dr.classList.add('open'); dr.innerHTML = '<p class="muted">loading…</p>';
+  try { const d = await api('/api/calls/' + id);
+    dr.innerHTML = `<div class="row" style="justify-content:space-between"><h1 style="margin:0">Call detail</h1><button id="drclose">Close</button></div>
+      <p class="muted">fetched by the CRM backend with the <code>pbxs_</code> key (calls:read) — tenant-wide; the CRM decides which of its users may open it</p>
+      <table><tr><th>When</th><td>${new Date(d.started_at).toLocaleString()}</td></tr><tr><th>Direction</th><td>${d.direction || ''}</td></tr><tr><th>From → To</th><td>${d.caller} → ${d.dialed}</td></tr><tr><th>Status</th><td>${d.status} ${d.disposition ? '· ' + d.disposition : ''}</td></tr><tr><th>Duration</th><td>${d.duration_s}s</td></tr><tr><th>Answered by</th><td>${d.answered_by || ''} ${d.agent_name || ''}</td></tr><tr><th>Recording</th><td>${d.has_recording ? 'yes' : 'no'}</td></tr>${d.external_ref ? `<tr><th>CRM ref</th><td>${d.external_ref}</td></tr>` : ''}</table>
+      ${d.summary ? `<h2 style="margin-top:14px">Summary</h2><p>${d.summary}</p>` : ''}
+      <h2 style="margin-top:14px">Audio</h2>
+      <div class="row"><button id="recUser" class="primary" ${d.has_recording ? '' : 'disabled'}>Listen as this user (session token)</button><button id="recServer" ${d.has_recording ? '' : 'disabled'}>Listen as the CRM backend (server key)</button></div>
+      <p class="muted" style="margin:6px 0 0">As this user: ArcanFlows checks the call involved this user's extension (10-minute link, 403 otherwise). As the backend: tenant-wide 1-hour link — your CRM must enforce who may click it.</p>
+      <div id="recOut" style="margin-top:8px"></div>
+      ${(d.turns && d.turns.length) ? `<h2 style="margin-top:14px">Transcript</h2>` + d.turns.map((t) => `<div class="turn ${t.role || t.speaker || ''}"><b>${t.role || t.speaker || ''}</b> ${t.text || t.content || ''}</div>`).join('') : '<p class="muted" style="margin-top:14px">no transcript turns (human-to-human call)</p>'}`;
+    $('#drclose').onclick = () => dr.classList.remove('open');
+    const play = async (how) => { const out = $('#recOut'); out.innerHTML = '<span class="muted">requesting a signed link…</span>';
+      try { let r;
+        if (how === 'user') { if (!state.token) throw new Error('connect the phone first — the session token is what identifies this user'); const resp = await fetch('https://api.arcanflows.com/api/v1/public/phone/calls/' + id + '/recording', { headers: { Authorization: 'Bearer ' + state.token } }); const j = await resp.json().catch(() => ({})); if (!resp.ok) throw new Error(resp.status + ' ' + (j.error || j.message || '')); r = j; }
+        else { r = await api('/api/calls/' + id + '/recording'); }
+        out.innerHTML = `<audio controls src="${r.url}" style="width:100%"></audio><div class="muted">signed link valid until ${new Date(r.expires_at).toLocaleTimeString()} · ${r.content_type || ''}</div>`; log('audio', `recording link as ${how} → ok (expires ${new Date(r.expires_at).toLocaleTimeString()})`); }
+      catch (e) { out.innerHTML = `<span class="pill bad">refused</span> <span class="muted">${e.message}</span>`; log('audio', `recording as ${how} refused: ${e.message}`, 'warn'); } };
+    $('#recUser').onclick = () => play('user'); $('#recServer').onclick = () => play('server');
+  } catch (e) { dr.innerHTML = `<button id="drclose">Close</button><p class="pill bad">${e.message}</p>`; $('#drclose').onclick = () => dr.classList.remove('open'); }
+}
+async function loadCustomers() { try { const d = await api('/api/customers'); const e = Object.entries(d.customers || {}); const el = $('#kc_list'); if (el) el.innerHTML = e.length ? e.map(([p, c]) => `${c.display_name} · ${p} <span class="pill">${c.account}</span>`).join('<br>') : 'none yet — add your mobile, then call the workspace number: the attendant greets you by name and the event log shows the screen-pop'; } catch {} }
+async function loadSeats() { try { const [u, s] = await Promise.all([api('/api/users'), api('/api/seats')]); const by = {}; for (const x of (s.seats || [])) by[x.external_user_id] = x; const tb = $('#seatRows'); if (!tb) return;
+  tb.innerHTML = Object.entries(u.users).map(([id, v]) => { const x = by[id]; return `<tr><td>${v.name}</td><td><code>${id}</code></td><td>${x ? `<span class="pill ok">ext ${x.extension}</span> ${x.display_name || ''}<br><span class="muted">ArcanFlows user: ${x.email || '?'}</span>` : '<span class="pill bad">not linked</span>'}</td><td class="muted">${v.how}</td><td>${x ? '' : `<button data-link="${id}">Provision seat (JIT)</button>`}</td></tr>`; }).join('');
+  document.querySelectorAll('button[data-link]').forEach((b) => b.onclick = async () => { try { const d = await api('/api/link', { method: 'POST', body: JSON.stringify({ user: b.dataset.link }) }); log('server', `seat for ${b.dataset.link}: ext ${d.extension} user_created=${d.user_created}`); loadSeats(); } catch (e) { log('error', 'link failed: ' + e.message, 'err'); } }); } catch (e) { const tb = $('#seatRows'); if (tb) tb.innerHTML = `<tr><td colspan="5" class="muted">seats failed: ${e.message}</td></tr>`; } }
+let seen = new Set();
+async function pollEvents() { try { const d = await api('/api/events'); for (const ev of (d.events || []).slice().reverse()) { const id = ev.at + (ev.event_id || ev.caller || ''); if (seen.has(id)) continue; seen.add(id);
+  if (ev.kind === 'webhook') log('webhook', `${ev.event_type} sig=${ev.sig_ok ? 'ok' : 'BAD'} ${JSON.stringify(ev.data).slice(0, 120)}`, ev.sig_ok ? '' : 'err'); else if (ev.kind === 'lookup') log('lookup', `ArcanFlows asked who ${ev.caller} is → ${ev.known ? 'known customer' : 'unknown'}${ev.note ? ' ' + ev.note : ''}`, ev.note ? 'err' : ''); } } catch {} }
+(async () => { const cfg = await api('/api/config'); state.users = cfg.users; const who = document.getElementById('who'); if (who) who.innerHTML = `demo CRM · phone = <b style="color:#fff">${cfg.workspace_label}</b> via ${cfg.api.replace('https://','')}`; log('crm', `backend → ${cfg.api} · origin ${location.origin} · single-page app: the phone dock survives navigation`); renderPage(); setInterval(pollEvents, 2500); })();
+</script>
+</body>
+</html>
