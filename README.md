@@ -174,6 +174,41 @@ of its users may press play. Links are signed and expire; treat one like the aud
 - **Deliveries are at-least-once**, retried for about 17 minutes on the phone event
   types; treat every event as a snapshot keyed by `call_id`.
 
+## Messaging (SMS/MMS) — ArcanFlows v1.1.13.x
+
+The same seat that answers calls can text. Nothing here needs a new key: the
+`pbx_` session and the `pbxs_` server key gain messaging routes, and the
+widget gains a **Messages** tab beside the dialpad.
+
+**In the widget.** Your CRM user sees their own conversations, the shared
+inbox (with *Claim*), a reply box with an MMS link and *New*. To open a
+prefilled compose from your page (click-to-text), post the twin of the dial
+command into the iframe:
+
+```js
+iframe.contentWindow.postMessage({ source: 'arcanflows-host', type: 'text', to: '+14045550123' }, ARCANFLOWS_ORIGIN);
+```
+
+The widget posts two new events to the host, next to `ring` / `call_started`:
+`message_received` (`{ thread_id, message_id, from, to, preview, owner_extension_id, unassigned }`)
+and `message_updated` (a thread changed: sent, delivered, claimed, assigned).
+Use them to refresh your own view; the truth is always the API.
+
+**From your server (`pbxs_`).** Three scopes, none granted by default:
+
+| Scope | What it allows |
+|---|---|
+| `messages:read` | `GET /server/messages/threads` (tenant-wide; filter by `external_user_id`, `extension`, `contact`, `status`, `unassigned=1`), `GET /server/messages/threads/{id}`, `GET /server/messages/usage?external_user_id=` |
+| `messages:send` | `POST /server/messages` `{ external_user_id, thread_id | to, body, media_urls? }` — sends **as that seat**, never as the key, through the seat's own gate (authorization, allowance, opt-out, quiet hours, quota); refusals name their reason |
+| `messages:manage` | `POST /server/messages/threads/{id}/assign` `{ external_user_id }` |
+
+**Webhooks.** Subscribe with `webhooks:manage` to `phone.message.received`
+(carries the caller context your lookup endpoint returned), `phone.message.sent`,
+`phone.message.delivered`, `phone.message.failed` (carrier code),
+`phone.message.opted_out` (mark the contact — nothing can be sent until they
+text START) and `phone.user.suspended`. Every payload carries the seat with
+its `external_user_id`, exactly like the call events.
+
 ## Files
 
 | File | Role |
