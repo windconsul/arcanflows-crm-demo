@@ -341,6 +341,12 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/seats":
             code, d = arcan("GET", "/api/v1/public/phone/server/seats")
             return self._json(code, d)
+        if p == "/api/seat-lookup":
+            # Before provisioning: does this CRM user's email already own an extension in ArcanFlows?
+            # (GET /server/seats/lookup — ArcanFlows ≥ 1.1.12.6; older servers answer 404 and the page degrades.)
+            target = self._target_user(me, {"user": (q.get("user") or [""])[0]})
+            code, d = arcan("GET", f"/api/v1/public/phone/server/seats/lookup?email={urllib.parse.quote(target['email'])}&external_user_id={urllib.parse.quote(target['external_user_id'])}")
+            return self._json(code, d)
         if p == "/api/customers":
             with LOCK:
                 return self._json(200, {"customers": CUSTOMERS})
