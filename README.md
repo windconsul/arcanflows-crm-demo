@@ -32,6 +32,27 @@ step. It exists to be read.
                 └─► POST /api/webhooks/phone   phone.call.ringing / answered / completed / missed …
 ```
 
+## Start here: the "Getting started" page
+
+Open **Getting started** in the demo's top bar. It is the integration in ten
+numbered steps, and every step runs live: the page asks the demo backend, the
+backend talks to ArcanFlows with the keys it holds, and you see what was sent
+and what came back.
+
+1. Create the two keys and point them at this app (checks key validity, the
+   allowed origins, and the `pbxs_` key's *effective* scopes)
+2. Link a CRM user to a seat (`external_user_id`)
+3. Mint a 15-minute session for the signed-in user
+4. Call the browser API with the session — who am I? (`web_capable`)
+5. Mount the widget once, outside your pages
+6. Subscribe to phone events and receive a signed webhook (creates the
+   subscriptions, flips the phone's status, waits for the delivery, verifies
+   the signature)
+7. Answer "who is calling?" — caller lookup, with a tampered-signature check
+8. Read a call and its recording — the two permissions, side by side
+9. Renew before expiry; guard against reloads
+10. Go to production — the checklist
+
 ## What the demo shows
 
 | On the page | What it proves |
@@ -153,6 +174,10 @@ of its users may press play. Links are signed and expire; treat one like the aud
 | `POST /api/lookup` ← ArcanFlows | answers `{display_name, account, external_ref, tier, language}` or `404` | signed |
 | `POST /api/webhooks/phone` ← ArcanFlows | stores the last 50 events for the page's log | signed |
 | `GET/POST /api/customers` | the in-memory customer list the lookup answers from | — |
+| `GET /api/101/status` | frame policy of the `pbx_` key + one harmless probe per scope to learn what the `pbxs_` key can do | both |
+| `GET/POST /api/101/subscriptions` | which `phone.*` subscriptions point at this host / create the missing ones | `pbxs_` |
+| `POST /api/101/lookup-selftest` | a signed sample lookup run through this backend's own handler, plus a tampered one | — |
+| `GET /api/101/recent-recorded?user=` | a recorded call of the user's seat and one that is not theirs | `pbxs_` |
 
 ## Reference documentation
 
