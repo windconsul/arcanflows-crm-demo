@@ -2,6 +2,10 @@ services:
   crm-demo:
     build: .
     env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data        # CRM users + workspace settings survive restarts
     ports:
       - "8088:8088"
     restart: unless-stopped

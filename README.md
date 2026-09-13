@@ -65,13 +65,35 @@ and what came back.
 | **Live event log** (Integration) | Widget events in the browser, plus webhooks and lookups received by the backend with their signature verified |
 | Reload during a call | The browser asks first — a full page load destroys the phone; the demo guards against it |
 
+## Two identities, on purpose
+
+The CRM has **its own accounts**: register, sign in, and an admin page to create
+users with a role (`admin` or `agent`). The CRM issues its own bearer token and
+the page keeps it in this origin's `localStorage` under `access_token`, the
+most common key name there is. That token decides who you are *in the CRM*.
+The phone knows nothing about it: the backend mints an ArcanFlows session for
+the signed-in user's `external_user_id`, and that session is the widget's only
+identity. Sign in as a different CRM user and the phone follows; sign out and
+the phone is unmounted. Neither token can reach the other's origin.
+
+The admin page also holds the **ArcanFlows workspace** the CRM talks to: API
+base, the `pbx_` and `pbxs_` keys, both secrets, the declared origin and a
+label. Paste the keys of any tenant and the whole demo points there; *Test
+connection* checks the embed key's allow-list and probes the server key's
+effective scopes. Nothing about a tenant is in the code.
+
 ## Run it
 
 ```bash
-cp .env.example .env        # fill in PBX, PBXS, WEBHOOK_SECRET, LOOKUP_SECRET, CRM_ORIGIN
+cp .env.example .env        # optional seeds: keys, secrets, CRM_ORIGIN, CRM_USERS + CRM_SEED_PASSWORD
 docker compose up -d        # or: PORT=8088 python3 server.py
-open http://localhost:8088
+open http://localhost:8088  # → /register: the first account becomes the CRM admin
 ```
+
+State lives in `data/` (`users.json`, `settings.json`, mode 600). Environment
+variables only seed the first boot; after that the admin page is the source of
+truth. Passwords are PBKDF2-hashed; CRM sessions last 12 hours and live in
+memory (a restart signs everyone out of the CRM, never out of ArcanFlows).
 
 ArcanFlows only calls **public HTTPS** URLs for lookups and webhooks, so for those two
 features put the demo behind a real hostname (see `Caddyfile.example`). Sessions,
@@ -156,16 +178,19 @@ of its users may press play. Links are signed and expire; treat one like the aud
 
 | File | Role |
 |---|---|
-| `server.py` | the CRM backend: session mint/renew, server-key proxies, click-to-call, seat provisioning, caller-lookup endpoint, webhook receiver |
-| `index.html` | the CRM: five client-side pages, the floating phone dock, the call drawer, the event log |
-| `.env.example` | every setting, documented |
+| `server.py` | the CRM backend: its own accounts and admin settings, session mint/renew, server-key proxies, click-to-call, seat provisioning, caller-lookup endpoint, webhook receiver |
+| `index.html` | the CRM: login, register and admin pages, five client-side app pages, Getting started, the floating phone dock, the call drawer, the event log |
+| `.env.example` | first-boot seeds, documented |
 | `Dockerfile`, `docker-compose.yml`, `Caddyfile.example` | run it anywhere behind HTTPS |
 
 ## Endpoints implemented by `server.py`
 
 | Method & path | Talks to | Key |
 |---|---|---|
-| `POST /api/phone-session` `{user}` | `POST /api/v1/public/phone/session` `{external_user_id, origin}` | `pbx_` |
+| `POST /api/auth/register` · `/login` · `/logout` · `GET /api/auth/me` | the CRM's own accounts (first registration = admin) | — |
+| `GET/POST /api/admin/users` · `PUT/DELETE /api/admin/users/{id}` | CRM users: role, `external_user_id`, password reset | — |
+| `GET/PUT /api/admin/settings` | the ArcanFlows workspace (keys masked on read, write-only) | — |
+| `POST /api/phone-session` (signed-in user; admins may pass `{user}`) | `POST /api/v1/public/phone/session` `{external_user_id, origin}` | `pbx_` |
 | `POST /api/phone-session/renew` `{session_token}` | same route with `{session_token}` | `pbx_` |
 | `GET /api/calls?range=7d` · `GET /api/calls/{id}` · `GET /api/calls/{id}/recording` | `/api/v1/public/phone/server/calls…` | `pbxs_` |
 | `GET /api/stats?range=7d` · `GET /api/presence` · `GET /api/seats` | `/api/v1/public/phone/server/{stats,presence,seats}` | `pbxs_` |
